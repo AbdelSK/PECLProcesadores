@@ -1,0 +1,243 @@
+package analizadorLex;
+
+import java.io.FileReader;
+
+parser code
+{:
+    /* Reporte de error encontrado. */
+    public void report_error(String message, Object info) {
+        StringBuilder m = new StringBuilder("Error");
+        if (info instanceof java_cup.runtime.Symbol) {
+            java_cup.runtime.Symbol s = ((java_cup.runtime.Symbol) info);
+            if (s.left >= 0) {                
+                m.append(" in line "+(s.left+1));
+                if (s.right >= 0)
+                    m.append(", column "+(s.right+1));
+            }
+        }
+        m.append(" : "+message);
+        System.err.println(m);
+    }
+   
+    /* Cuando se encuentra un error de donde el sistema no puede
+        recuperarse, se lanza un error fatal. Se despliega el mensaje
+        de error y se finaliza la ejecucion. */
+    public void report_fatal_error(String message, Object info) {
+        report_error(message, info);
+        System.exit(1);
+    }
+
+    /* Metodo main para garantizar la ejecucion del analizador
+       lexico y sintactico, ademas que se pase como parametro la tabla
+       de simbolos correspondiente. */
+    public static void main(String[] args){
+        try {
+            AnalizadorSintactico asin = new AnalizadorSintactico(
+                    new AnalizadorLexico( new FileReader(args[0])));
+            Object result = asin.parse().value;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }
+:}
+
+action code
+{:
+    private AnalizadorSemantico asemantico= new AnalizadorSemantico();
+:}
+
+terminal           PROGRAM, IS, BEGIN, END, VAR, INTEGER, BOOLEAN, READ,
+				   WRITE, SKIP, WHILE, DO, IF, THEN, ELSE, AND, OR, TRUE,
+				   FALSE, NOT, ASIGNACION, MENOR_IGUAL, MENOR, IGUAL, MAYOR,
+				   MAYOR_IGUAL, DISTINTO, SUMA, RESTA, MULTIPLICACION,
+				   DIVISION, PARENTESIS_ABIERTO, PARENTESIS_CERRADO, COMA,
+				   PUNTO_COMA, DOS_PUNTOS;
+
+terminal Integer   ENTERO;
+terminal String    IDE;
+
+non terminal Object     cabecera, declaraciones, principal, nombrescampos, 
+                        tipodato, listaSentencias, sentencia, asignarvalor, 
+                        bucles, bucleif, condicionsi, condicion, condicional, 
+                        condicionno, buclewhile, leerescribir, operacion, 
+                        expresion, aritmetico, logico;
+
+precedence left OR;
+precedence left AND;
+precedence right NOT;
+precedence left MAYOR, MENOR, IGUAL, MAYOR_IGUAL, MENOR_IGUAL, DISTINTO;
+precedence left RESTA, SUMA;
+precedence left MULTIPLICACION, DIVISION; 
+
+start with cabecera;
+
+//Cabecera de programa:
+cabecera ::= PROGRAM IDE:id IS declaraciones:decl principal:p
+            {:
+                RESULT = "| Program "+id+" is\n" +decl+ p; 
+                String[] vars = ((String) id).split(",");
+                asemantico.insertarVariables("pseudo", vars); 
+				
+				asemantico.imprimirErroresSemanticos();
+                System.out.println("Analisis Sintactico completado: \n" + "------------------------------- \n\n"+RESULT);
+                
+            :};
+
+
+//Declaracion de variables:
+declaraciones ::= VAR nombrescampos:ncs DOS_PUNTOS tipodato:td PUNTO_COMA declaraciones:decl 
+                {:
+                    RESULT = "|   | Var ("+td+"["+ncs+"]"+")\n" + decl;
+                    String[] vars = ((String) ncs).split(",");
+                    asemantico.insertarVariables(((String) td), vars);
+                :}
+                | /*empty*/
+                {:RESULT = "";:};
+    nombrescampos ::= IDE:id COMA nombrescampos:ncs
+                    {:RESULT = id+","+ ncs;:}
+                    | IDE:id
+                    {:RESULT = id;:};
+    tipodato ::= INTEGER 
+                {:RESULT = "Integer";:}
+                | BOOLEAN
+                {:RESULT = "Boolean";:};
+
+//Incio y Fin programa:
+principal ::= BEGIN listaSentencias:ls END
+            {:RESULT = "|   | Begin"+ls+"\n|   | End";:};
+    //Codigo Programa:
+    listaSentencias ::= sentencia:s PUNTO_COMA listaSentencias:ls
+                    {:RESULT = "\n|   |   | "+s+ls;:}
+                    | sentencia:s
+                    {:RESULT = "\n|   |   | "+s;:} 
+                    | /*empty*/
+                    {:RESULT = "";:};
+    sentencia ::= asignarvalor:asig
+                {:RESULT = asig;:}
+                | bucles:bcl 
+                {:RESULT = bcl;:}
+                | leerescribir:wr
+                {:RESULT = wr;:} 
+                | SKIP 
+                {:RESULT = "Skip";:};
+
+        //Asignacion de valor a las variables:
+        asignarvalor ::= IDE:id ASIGNACION expresion:exp
+                    {:
+                        //RESULT = "Asign ("+id+","+exp+")";
+                        RESULT = asemantico.asign((String)id, (String)exp); 
+                    :};
+        expresion ::= aritmetico:arit 
+                    {:
+                        //RESULT = "expArit("+arit+")";
+                        RESULT = arit;
+                    :}
+                    | logico:log
+                    {:
+                        //RESULT = "expLogica("+log+")";
+                        RESULT = log;
+                    :};
+
+        aritmetico ::= aritmetico:exp1 operacion:op aritmetico:exp2
+                    {:
+                        //RESULT = op+", "+exp1+", "+exp2;
+                        RESULT = asemantico.exp((String)op, (String)exp1, (String)exp2);
+                    :}
+                    | PARENTESIS_ABIERTO aritmetico:art PARENTESIS_CERRADO
+                    {:
+                        //RESULT = "("+art+")";
+                        RESULT = art;
+                    :}
+                    | IDE:id
+                    {:
+                        //RESULT = id;
+                        RESULT = asemantico.getTipoVar(id);
+                    :}
+	                | ENTERO:e
+                    {:
+                        //RESULT = "num("+e.intValue()+")";
+                        RESULT = "Integer,num("+e.intValue()+")";
+                    :};
+	    
+        logico ::=  expresion:exp1 condicional:cl expresion:exp2
+                    {:
+                        //RESULT = cl+", "+exp1+", "+exp2;
+                        RESULT = asemantico.exp((String)cl, (String)exp1, (String)exp2);
+                    :}
+                    | PARENTESIS_ABIERTO logico:log PARENTESIS_CERRADO
+                    {:
+                        //RESULT = "("+log+")";
+                        RESULT = log;
+                    :}
+                    | NOT PARENTESIS_ABIERTO logico:log PARENTESIS_CERRADO
+                    {:
+                        //RESULT = "NotBoolean("+log+")";
+                        RESULT = log;
+                    :}
+                    | NOT PARENTESIS_ABIERTO IDE:id PARENTESIS_CERRADO
+                    {:
+                        RESULT = asemantico.getTipoVar(id);
+                    :}
+                    | TRUE 
+                    {:
+                        //RESULT = "True";
+                        RESULT = "Boolean,True";
+                    :}
+	                | FALSE
+                    {:
+                        //RESULT = "False";
+                        RESULT = "Boolean,False";
+                    :};
+                
+        operacion ::= SUMA 
+                    {:RESULT = "Suma";:}
+                    | RESTA 
+                    {:RESULT = "Resta";:}
+                    | MULTIPLICACION
+                    {:RESULT = "Mult";:}
+                    | DIVISION
+                    {:RESULT = "Div";:};
+        condicional ::= MAYOR 
+                    {:RESULT = "Mayor";:}
+                    | MENOR 
+                    {:RESULT = "Menor";:}
+                    | IGUAL  
+                    {:RESULT = "Igual";:}
+                    | MAYOR_IGUAL 
+                    {:RESULT = "Mayor_Igual";:}
+                    | MENOR_IGUAL 
+                    {:RESULT = "Menor_Igual";:}
+                    | DISTINTO 
+                    {:RESULT = "Distinto";:}
+                    | AND 
+                    {:RESULT = "And";:}
+                    | OR
+                    {:RESULT = "Or";:};
+
+        //Bucles if y while:
+        bucles ::= bucleif:si END IF 
+                {:RESULT = si + "\n|   |   | End If";:}
+                | buclewhile: mient END WHILE
+                {:RESULT = mient +"\n|   |   | End While ";:};
+        bucleif ::= condicionsi: csi 
+                {:RESULT = csi;:}
+                | condicionsi:csi condicionno:cno
+                {:RESULT = csi+"\n"+cno;:};
+        condicionsi ::= IF condicion:condic THEN listaSentencias:ls
+                        {:RESULT = "If "+condic+((String) ls).replace("\n","\n|   ");:}; 
+        condicionno ::= ELSE listaSentencias:ls
+                        {:RESULT = "Else"+((String) ls).replace("\n","\n|   ");:}; 
+        buclewhile ::= WHILE condicion:condic DO listaSentencias:ls 
+                        {:RESULT = "While "+condic+((String) ls).replace("\n","\n|   ");:}; 
+        condicion ::= logico:log
+                    {:RESULT = asemantico.condic((String) log);:}
+	        		| IDE:id
+                    {:RESULT = asemantico.condic(asemantico.getTipoVar(id)+","+id);:};
+
+        //Leer y escribir:
+        leerescribir ::= READ logico:log
+                        {:RESULT = asemantico.read((String) log);:}
+                        |READ IDE:id
+                        {:RESULT = asemantico.read(asemantico.getTipoVar(id)+","+id);:}
+                        | WRITE expresion:exp
+                        {:RESULT = asemantico.write((String) exp);:}; 

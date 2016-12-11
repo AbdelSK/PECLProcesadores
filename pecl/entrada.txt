@@ -1,0 +1,20 @@
+program frombinary is
+	var sum, n: integer;
+	var bol: boolean;
+begin
+	bol := true;
+	sum := 10; 
+	n := 5;
+	read n;
+	while ( n < 2 ) do
+		if ( bol <> (2<10) ) then
+			skip
+		else
+			if  bol <> true then
+				sum := 10;
+			end if;
+		end if;
+	end while;
+	write sum;skip
+end
+
